@@ -45,6 +45,12 @@ namespace pldm
 {
 namespace base
 {
+enum class TransportTypes : uint8_t
+{
+    MCTP = 0x01,
+    NCSI = 0x02,
+    OEM = 0x03
+};
 
 constexpr uint16_t timeOut = 100;
 constexpr size_t retryCount = 3;
@@ -56,11 +62,13 @@ constexpr std::chrono::minutes tidReclaimWindow{3};
 using SupportedPLDMTypes = std::array<bitfield8_t, 8>;
 using PLDMVersions = std::vector<ver32_t>;
 using VersionSupportTable = std::unordered_map<uint8_t, PLDMVersions>;
-
 struct BaseInterfaces
 {
     DBusInterfacePtr msgTypeInterface;
     DBusInterfacePtr uuidInterface;
+    DBusInterfacePtr transportTypeInterface; // Gives transport type
+    DBusInterfacePtr
+        transportDetailsInterface; // Provides transport specific details
 };
 
 struct DiscoveryData
@@ -457,6 +465,7 @@ bool setTID(boost::asio::yield_context yield, const mctpw_eid_t eid,
     }
     return true;
 }
+
 VersionSupportTable
     createVersionSupportTable(boost::asio::yield_context yield,
                               const mctpw_eid_t eid,
@@ -667,6 +676,19 @@ PLDMMsgTypes getPldmMsgTypes(const SupportedPLDMTypes& msgType)
     return messageTypes;
 }
 
+static TransportTypes getTransportType(const pldm_tid_t /*tid*/)
+{
+    // TODO: Identify the transport type using tid
+    return TransportTypes::MCTP;
+}
+
+void setDbusProperty(DBusInterfacePtr typeIntf, const std::string s)
+{
+    typeIntf->register_property_r("Type", s,
+                                  sdbusplus::vtable::property_::const_,
+                                  [](const auto& r) { return r; });
+}
+
 BaseInterfaces registerBaseInterfaces(const pldm_tid_t tid,
                                       const pldm::platform::UUID& uuid,
                                       PLDMMsgTypes messageTypes)
@@ -699,6 +721,46 @@ BaseInterfaces registerBaseInterfaces(const pldm_tid_t tid,
     BaseInterfaces baseInterfaces;
     baseInterfaces.msgTypeInterface = std::move(msgTypeIntf);
     baseInterfaces.uuidInterface = std::move(uuidIntf);
+
+    TransportTypes transportType;
+    transportType = getTransportType(tid);
+    DBusInterfacePtr typeIntf =
+        addUniqueInterface(interfacePath, "xyz.openbmc_project.PLDM.Transport");
+    switch (transportType)
+    {
+        case TransportTypes::MCTP: {
+            const std::string s = "MCTP";
+            setDbusProperty(typeIntf, s);
+            if (auto eidPtr = tidMapper.getMappedEID(tid))
+            {
+                DBusInterfacePtr mctpeidIntf = addUniqueInterface(
+                    interfacePath, "xyz.openbmc_project.MCTP.Endpoint");
+                mctpeidIntf->register_property_r(
+                    "EID", *eidPtr, sdbusplus::vtable::property_::const_,
+                    [](const auto& r) { return r; });
+                mctpeidIntf->initialize();
+                baseInterfaces.transportTypeInterface = std::move(mctpeidIntf);
+            }
+            break;
+        }
+        case TransportTypes::NCSI: {
+            const std::string s = "NCSI";
+            setDbusProperty(typeIntf, s);
+            break;
+        }
+        case TransportTypes::OEM: {
+            const std::string s = "OEM";
+            setDbusProperty(typeIntf, s);
+            break;
+        }
+        default:
+            phosphor::logging::log<phosphor::logging::level::ERR>(
+                "Invalid Transport type");
+            break;
+    }
+
+    typeIntf->initialize();
+    baseInterfaces.transportDetailsInterface = std::move(typeIntf);
     return baseInterfaces;
 }
 
