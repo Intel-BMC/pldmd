@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#pragma once
+
 #include "pldm.hpp"
 
 #include <phosphor-logging/log.hpp>
@@ -161,12 +163,63 @@ class PLDMFRUTable
         return strVal;
     }
 
+    static std::string
+        convertTStamp104ToCIMFormat(const timestamp104_t& fruStamp)
+    {
+        std::stringstream timeStampStr;
+
+        enum CIMTimeStampVarLength
+        {
+            width2 = 2,
+            width3 = 3,
+            width4 = 4,
+            width6 = 6,
+        };
+
+        if (!((fruStamp.year >= 1980 && fruStamp.year <= 9999) &&
+              (fruStamp.month >= 1 && fruStamp.month <= 12) &&
+              (fruStamp.day >= 1 && fruStamp.day <= 31) &&
+              (fruStamp.hour < 24) && (fruStamp.minute < 60) &&
+              (fruStamp.second < 60) &&
+              ((fruStamp.microsecond >= 0) &&
+               (fruStamp.microsecond <= 999999)) &&
+              (fruStamp.utc_offset >= -999 && fruStamp.utc_offset <= 999)))
+        {
+            phosphor::logging::log<phosphor::logging::level::ERR>(
+                "TimeStamp is not valid");
+            return timeStampStr.str();
+        }
+        // handle CIM conversions and UTC offset
+        timeStampStr << std::setfill('0') << std::setw(width4) << fruStamp.year
+                     << std::setfill('0') << std::setw(width2)
+                     << static_cast<int>(fruStamp.month) << std::setfill('0')
+                     << std::setw(width2) << static_cast<int>(fruStamp.day)
+                     << std::setfill('0') << std::setw(width2)
+                     << static_cast<int>(fruStamp.hour) << std::setfill('0')
+                     << std::setw(width2) << static_cast<int>(fruStamp.minute)
+                     << std::setfill('0') << std::setw(width2)
+                     << static_cast<int>(fruStamp.second) << "."
+                     << std::setfill('0') << std::setw(width6)
+                     << fruStamp.microsecond;
+        if (fruStamp.utc_offset >= 0)
+        {
+            timeStampStr << "+";
+        }
+        else
+        {
+            timeStampStr << "-";
+        }
+        timeStampStr << std::setfill('0') << std::setw(width3)
+                     << std::to_string(fruStamp.utc_offset);
+
+        return timeStampStr.str();
+    }
+
     static std::string fruFieldParserTimestamp(const uint8_t* value,
                                                uint8_t length)
     {
         assert(value != NULL);
         timestamp104_t fruStamp;
-        std::string timeStampStr;
 
         if (length != timeStamp104Size)
         {
@@ -195,20 +248,7 @@ class PLDMFRUTable
             return std::string("");
         }
 
-        if ((fruStamp.month >= 1 && fruStamp.month <= 12) ||
-            (fruStamp.day >= 1 && fruStamp.day <= 31) || (fruStamp.hour < 24) ||
-            (fruStamp.minute < 60) || (fruStamp.second < 60))
-        {
-            timeStampStr.assign(std::to_string(fruStamp.year) + "-" +
-                                std::to_string(fruStamp.month) + "-" +
-                                std::to_string(fruStamp.day));
-            timeStampStr.append(" " + std::to_string(fruStamp.hour) + ":" +
-                                std::to_string(fruStamp.minute) + ":" +
-                                std::to_string(fruStamp.second));
-
-            // TODO: Need to handle CIM conversions and UTC offset
-        }
-        return timeStampStr;
+        return (convertTStamp104ToCIMFormat(fruStamp));
     }
 
     static std::string fruFieldParserU32(const uint8_t* value, uint8_t length)
