@@ -37,7 +37,8 @@ struct NumericSensor
     NumericSensor(const std::string& sensorName,
                   std::vector<thresholds::Threshold>& thresholdData,
                   const double max, const double min,
-                  const SensorUnit sensorUnit, const bool sensorDisabled);
+                  const SensorUnit sensorUnit, const bool sensorDisabled,
+                  const std::string& assocationPath);
 
     ~NumericSensor();
 
@@ -45,6 +46,8 @@ struct NumericSensor
     double maxValue;
     double minValue;
     std::vector<thresholds::Threshold> thresholds;
+    std::shared_ptr<sdbusplus::asio::dbus_interface> associationInterface =
+        nullptr;
     std::shared_ptr<sdbusplus::asio::dbus_interface> sensorInterface = nullptr;
     std::shared_ptr<sdbusplus::asio::dbus_interface> thresholdInterfaceWarning =
         nullptr;

@@ -18,6 +18,7 @@
 
 #include "pdr_utils.hpp"
 #include "platform.hpp"
+#include "platform_association.hpp"
 
 #include <phosphor-logging/log.hpp>
 
@@ -236,7 +237,7 @@ bool NumericSensorHandler::initSensor()
             _name, thresholdData,
             pdr::sensor::calculateSensorValue(*_pdr, *maxVal),
             pdr::sensor::calculateSensorValue(*_pdr, *minVal), *baseUnit,
-            sensorDisabled);
+            sensorDisabled, association::getPath());
     }
     catch (const std::exception& e)
     {
