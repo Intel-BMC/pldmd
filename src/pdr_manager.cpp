@@ -17,6 +17,7 @@
 #include "pdr_manager.hpp"
 
 #include "platform.hpp"
+#include "platform_association.hpp"
 #include "pldm.hpp"
 #include "utils.hpp"
 
@@ -59,6 +60,14 @@ PDRManager::~PDRManager()
     {
         objectServer->remove_interface(iter.second.first);
     }
+
+#ifdef EXPOSE_CHASSIS
+    if (inventoryIntf)
+    {
+        objectServer->remove_interface(inventoryIntf);
+        association::setPath(_tid, {});
+    }
+#endif
 
     if (pdrDumpInterface)
     {
@@ -872,6 +881,39 @@ void PDRManager::populateSystemHierarchy()
     _entityObjectPaths.clear();
 }
 
+void PDRManager::extractDeviceAuxName(EntityNode::NodePtr& rootNode)
+{
+    auto iter = _entityAuxNames.find(rootNode->containerEntity);
+    if (iter != _entityAuxNames.end())
+    {
+        _deviceAuxName = iter->second;
+    }
+    else
+    {
+        _deviceAuxName = "PLDM_Device";
+    }
+    _deviceAuxName += ("_" + std::to_string(_tid));
+}
+
+#ifdef EXPOSE_CHASSIS
+void PDRManager::initializeInventoryIntf()
+{
+    std::string inventoryObj =
+        "/xyz/openbmc_project/inventory/system/board/" + _deviceAuxName;
+    auto objServer = getObjServer();
+
+    /** TODO: Use a PLDM-specific interface instead of Board
+     *  Changes on the Redfish API server side required.
+     */
+    inventoryIntf = objServer->add_interface(
+        inventoryObj, "xyz.openbmc_project.Inventory.Item.Board");
+    inventoryIntf->register_property("Name", _deviceAuxName);
+    inventoryIntf->initialize();
+
+    association::setPath(_tid, inventoryObj);
+}
+#endif
+
 void PDRManager::parseSensorAuxNamesPDR(std::vector<uint8_t>& pdrData)
 {
     if (pdrData.size() < sizeof(pldm_sensor_auxiliary_names_pdr))
@@ -1582,6 +1624,10 @@ bool PDRManager::pdrManagerInit(boost::asio::yield_context yield)
     parsePDR<PLDM_PDR_ENTITY_ASSOCIATION>();
     getEntityAssociationPaths(_entityAssociationTree, {});
     populateSystemHierarchy();
+    extractDeviceAuxName(_entityAssociationTree);
+#ifdef EXPOSE_CHASSIS
+    initializeInventoryIntf();
+#endif
     parsePDR<PLDM_SENSOR_AUXILIARY_NAMES_PDR>();
     parsePDR<PLDM_EFFECTER_AUXILIARY_NAMES_PDR>();
     parsePDR<PLDM_NUMERIC_SENSOR_PDR>();

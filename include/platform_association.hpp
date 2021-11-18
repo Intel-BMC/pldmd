@@ -26,8 +26,11 @@ namespace platform
 {
 namespace association
 {
-/** @brief Get sensor association path*/
-std::string getPath();
+/** @brief Get sensor association path of tid*/
+std::string getPath(pldm_tid_t tid);
+
+/** @brief Set sensor association path of tid*/
+void setPath(pldm_tid_t tid, const std::string& path);
 
 } // namespace association
 } // namespace platform

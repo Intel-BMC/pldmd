@@ -172,6 +172,14 @@ class PDRManager
      * hierarchy*/
     void populateSystemHierarchy();
 
+    /** @brief Extract device auxiliary name from Entity Association PDR*/
+    void extractDeviceAuxName(EntityNode::NodePtr& rootNode);
+
+#ifdef EXPOSE_CHASSIS
+    /** @brief Create inventory interface representing the device on D-Bus*/
+    void initializeInventoryIntf();
+#endif
+
     /** @brief Parse Sensor Auxiliary Names PDR */
     void parseSensorAuxNamesPDR(std::vector<uint8_t>& pdrData);
 
@@ -251,6 +259,9 @@ class PDRManager
                        EntityHash, EntityComparator>
         _systemHierarchyIntf;
 
+    /** @brief Holds Device Auxiliary Name*/
+    std::string _deviceAuxName;
+
     /** @brief Holds Sensor Auxiliary Names.
      * Note:- SensorID is considered as unique within a terminus
      */
@@ -284,6 +295,11 @@ class PDRManager
     /** @brief Holds State Sensor PDR */
     std::unordered_map<SensorID, std::shared_ptr<StateSensorPDR>>
         _stateSensorPDR;
+
+#ifdef EXPOSE_CHASSIS
+    /** @brief D-Bus interfaces to inventory */
+    DBusInterfacePtr inventoryIntf;
+#endif
 
     /** @brief D-Bus interfaces to dump PDR */
     DBusInterfacePtr pdrDumpInterface;

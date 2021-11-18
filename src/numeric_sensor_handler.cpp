@@ -237,7 +237,7 @@ bool NumericSensorHandler::initSensor()
             _name, thresholdData,
             pdr::sensor::calculateSensorValue(*_pdr, *maxVal),
             pdr::sensor::calculateSensorValue(*_pdr, *minVal), *baseUnit,
-            sensorDisabled, association::getPath());
+            sensorDisabled, association::getPath(_tid));
     }
     catch (const std::exception& e)
     {

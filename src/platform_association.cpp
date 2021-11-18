@@ -22,6 +22,7 @@
 #include <optional>
 #include <phosphor-logging/log.hpp>
 #include <string>
+#include <unordered_map>
 
 namespace pldm
 {
@@ -40,7 +41,7 @@ static constexpr const char* mctpConfigIntf =
  *
  *  @todo Use PldmConfiguration interface when it is implemented
  */
-std::string getPath()
+std::string getPath(pldm_tid_t tid __attribute__((unused)))
 {
     static std::optional<std::string> baseboardPath{};
 
@@ -73,14 +74,60 @@ std::string getPath()
     return baseboardPath.value();
 }
 
+/** @brief Set sensor association path of tid*/
+void setPath(pldm_tid_t tid __attribute__((unused)),
+             const std::string& path __attribute__((unused)))
+{
+}
+
+#elif defined(EXPOSE_CHASSIS)
+
+std::unordered_map<pldm_tid_t, std::string> devicePathMap;
+
+/** @brief Get sensor association path
+ *  @param[in] tid - Terminus ID
+ *  @return DBus path of the PLDM device
+ */
+std::string getPath(pldm_tid_t tid)
+{
+    if (devicePathMap.count(tid))
+    {
+        return devicePathMap.at(tid);
+    }
+    return {};
+}
+
+/** @brief Set sensor association path
+ *  @param[in] tid - Terminus ID
+ *  @param[in] path - DBus path of the PLDM device
+ */
+void setPath(pldm_tid_t tid, const std::string& path)
+{
+    if (path.empty())
+    {
+        if (devicePathMap.count(tid))
+        {
+            devicePathMap.erase(tid);
+        }
+        return;
+    }
+    devicePathMap.insert_or_assign(tid, path);
+}
+
 #else
 
 /** @brief Get sensor association path
  *  @return Empty string
  */
-std::string getPath()
+std::string getPath(pldm_tid_t tid __attribute__((unused)))
 {
     return {};
+}
+
+/** @brief Set sensor association path of tid*/
+void setPath(pldm_tid_t tid __attribute__((unused)),
+             const std::string& path __attribute__((unused)))
+{
 }
 
 #endif
