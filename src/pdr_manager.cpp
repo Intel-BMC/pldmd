@@ -883,16 +883,18 @@ void PDRManager::populateSystemHierarchy()
 
 void PDRManager::extractDeviceAuxName(EntityNode::NodePtr& rootNode)
 {
-    auto iter = _entityAuxNames.find(rootNode->containerEntity);
-    if (iter != _entityAuxNames.end())
+    if (rootNode != nullptr)
     {
-        _deviceAuxName = iter->second;
+        auto iter = _entityAuxNames.find(rootNode->containerEntity);
+        if (iter != _entityAuxNames.end())
+        {
+            _deviceAuxName = iter->second;
+            _deviceAuxName += ("_" + std::to_string(_tid));
+            return;
+        }
     }
-    else
-    {
-        _deviceAuxName = "PLDM_Device";
-    }
-    _deviceAuxName += ("_" + std::to_string(_tid));
+
+    _deviceAuxName = ("PLDM_Device_" + std::to_string(_tid));
 }
 
 #ifdef EXPOSE_CHASSIS
