@@ -24,7 +24,7 @@
 using FRUVariantType = std::variant<uint8_t, uint32_t, std::string>;
 using FRUProperties = std::map<std::string, FRUVariantType>;
 
-class FruSupport
+class IpmiFru
 {
   public:
     /** @brief Add IPMI Fru interfaces, Add GetRawFru method
@@ -38,14 +38,14 @@ class FruSupport
      *  @param fruProperties - Properties of PLDM device
      *  @return void
      */
-    void convertFRUToIpmiFRU(const pldm_tid_t& tid,
+    void convertFRUToIpmiFRU(const pldm_tid_t tid,
                              const FRUProperties& fruProperties);
 
     /** @brief Removes the IPMI interfaces
      *  @param tid - TID of the PLDM device
      *  @return void
      */
-    void removeInterfaces(const pldm_tid_t& tid);
+    void removeInterfaces(const pldm_tid_t tid);
 
   private:
     std::unordered_map<pldm_tid_t,
@@ -86,3 +86,35 @@ class FruSupport
 
     uint8_t setHeaderAreaOffset(uint8_t& fruOffset, const uint8_t areaOffset);
 };
+
+#ifdef EXPOSE_CHASSIS
+class RedfishFru
+{
+  public:
+    /** @brief Create the Redfish Fru Interface
+     *  @param tid - TID of the PLDM device
+     *  @param fruProperties - Properties of PLDM device
+     *  @return void
+     */
+    void createInterface(const pldm_tid_t tid,
+                         const FRUProperties& fruProperties);
+
+    /** @brief Removes the Redfish fru interface
+     *  @param tid - TID of the PLDM device
+     *  @return void
+     */
+    void removeInterface(const pldm_tid_t tid);
+
+  private:
+    std::unordered_map<pldm_tid_t,
+                       std::shared_ptr<sdbusplus::asio::dbus_interface>>
+        redfishFruInterface;
+    std::shared_ptr<sdbusplus::asio::dbus_interface> fruIface;
+
+    /** @brief Converts FRU property value to trimmed string
+     *  @param value - FRU property value
+     *  @return Trimmed string
+     */
+    std::string toTrimmedString(const FRUVariantType& value);
+};
+#endif

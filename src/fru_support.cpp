@@ -16,9 +16,11 @@
 #include "fru_support.hpp"
 
 #include "fru.hpp"
+#include "platform_association.hpp"
 
 #include <boost/algorithm/string.hpp>
 #include <numeric>
+#include <sstream>
 #include <vector>
 #include <xyz/openbmc_project/Inventory/Source/PLDM/FRU/server.hpp>
 
@@ -33,8 +35,8 @@ const static std::unordered_map<std::string, std::string> mappedIpmiProperties{
     {"Version", "PRODUCT_VERSION"},    {"AssetTag", "ASSET_TAG"},
     {"Vendor", "PRODUCT_MANUFACTURER"}};
 
-uint8_t FruSupport::calculateChecksum(std::vector<uint8_t>::const_iterator iter,
-                                      std::vector<uint8_t>::const_iterator end)
+uint8_t IpmiFru::calculateChecksum(std::vector<uint8_t>::const_iterator iter,
+                                   std::vector<uint8_t>::const_iterator end)
 {
     constexpr int checksumMod = 256;
     constexpr uint8_t modVal = 0xFF;
@@ -43,7 +45,7 @@ uint8_t FruSupport::calculateChecksum(std::vector<uint8_t>::const_iterator iter,
     return static_cast<uint8_t>(checksum);
 }
 
-void FruSupport::initializeFRUSupport()
+void IpmiFru::initializeFRUSupport()
 {
     auto objServer = getObjServer();
     fruIface = objServer->add_interface("/xyz/openbmc_project/FruDevice",
@@ -70,8 +72,8 @@ void FruSupport::initializeFRUSupport()
     fruIface->initialize();
 }
 
-void FruSupport::convertFRUToIpmiFRU(const pldm_tid_t& tid,
-                                     const FRUProperties& fruProperties)
+void IpmiFru::convertFRUToIpmiFRU(const pldm_tid_t tid,
+                                  const FRUProperties& fruProperties)
 {
     auto objServer = getObjServer();
     auto it = fruProperties.find("Name");
@@ -148,7 +150,7 @@ void FruSupport::convertFRUToIpmiFRU(const pldm_tid_t& tid,
     ipmiFRUProperties.emplace(tid, std::move(ipmiProps));
 }
 
-void FruSupport::removeInterfaces(const pldm_tid_t& tid)
+void IpmiFru::removeInterfaces(const pldm_tid_t tid)
 {
     auto objServer = getObjServer();
 
@@ -166,7 +168,7 @@ void FruSupport::removeInterfaces(const pldm_tid_t& tid)
 }
 
 std::optional<std::vector<uint8_t>>
-    FruSupport::getRawFRURecordData(const pldm_tid_t tid)
+    IpmiFru::getRawFRURecordData(const pldm_tid_t tid)
 {
     std::vector<uint8_t> ipmiFruData;
     std::vector<uint8_t> rawFruData;
@@ -197,8 +199,8 @@ std::optional<std::vector<uint8_t>>
     return ipmiFruData;
 }
 
-uint8_t FruSupport::setHeaderAreaOffset(uint8_t& fruOffset,
-                                        const uint8_t areaOffset)
+uint8_t IpmiFru::setHeaderAreaOffset(uint8_t& fruOffset,
+                                     const uint8_t areaOffset)
 {
     uint8_t offset = fruOffset;
     // Info not present
@@ -217,11 +219,11 @@ uint8_t FruSupport::setHeaderAreaOffset(uint8_t& fruOffset,
     return offset;
 }
 
-void FruSupport::setCommonHeader(const uint8_t internalAreaLen,
-                                 const uint8_t chassisAreaLen,
-                                 const uint8_t boardAreaLen,
-                                 const uint8_t productAreaLen,
-                                 std::vector<uint8_t>& ipmiFruData)
+void IpmiFru::setCommonHeader(const uint8_t internalAreaLen,
+                              const uint8_t chassisAreaLen,
+                              const uint8_t boardAreaLen,
+                              const uint8_t productAreaLen,
+                              std::vector<uint8_t>& ipmiFruData)
 {
     uint8_t fruAreaOffset = 0;
     // Version
@@ -243,7 +245,7 @@ void FruSupport::setCommonHeader(const uint8_t internalAreaLen,
         calculateChecksum(ipmiFruData.begin(), ipmiFruData.end()));
 }
 
-uint8_t FruSupport::setInternalArea(std::vector<uint8_t>& fruData)
+uint8_t IpmiFru::setInternalArea(std::vector<uint8_t>& fruData)
 {
     // IPMI FRU follows specific format from which we need only common header
     // and product info area. So Internal Info area need to be filled with empty
@@ -254,7 +256,7 @@ uint8_t FruSupport::setInternalArea(std::vector<uint8_t>& fruData)
     return 0;
 }
 
-uint8_t FruSupport::setChassisArea(std::vector<uint8_t>& fruData)
+uint8_t IpmiFru::setChassisArea(std::vector<uint8_t>& fruData)
 {
     // IPMI FRU follows specific format from which we need only common header
     // and product info area. Chassis Info area need to be filled with empty
@@ -265,7 +267,7 @@ uint8_t FruSupport::setChassisArea(std::vector<uint8_t>& fruData)
     return 0;
 }
 
-uint8_t FruSupport::setBoardArea(std::vector<uint8_t>& fruData)
+uint8_t IpmiFru::setBoardArea(std::vector<uint8_t>& fruData)
 {
     // IPMI FRU follows specific format from which we need only common header
     // and product info area. Board area need to be filled with empty
@@ -275,8 +277,8 @@ uint8_t FruSupport::setBoardArea(std::vector<uint8_t>& fruData)
     return 0;
 }
 
-uint8_t FruSupport::setProductArea(const FRUProperties& properties,
-                                   std::vector<uint8_t>& fruData)
+uint8_t IpmiFru::setProductArea(const FRUProperties& properties,
+                                std::vector<uint8_t>& fruData)
 {
 
     constexpr uint8_t endOfFields = 0xC1;
@@ -369,3 +371,85 @@ uint8_t FruSupport::setProductArea(const FRUProperties& properties,
 
     return productData[1];
 }
+
+#ifdef EXPOSE_CHASSIS
+const static std::unordered_map<std::string, std::string>
+    redfishPropertyMappings{{"Model", "Model"},
+                            {"Name", "Name"},
+                            {"PN", "PartNumber"},
+                            {"SN", "SerialNumber"}};
+
+void RedfishFru::createInterface(const pldm_tid_t tid,
+                                 const FRUProperties& fruProperties)
+{
+    auto objServer = getObjServer();
+    fruIface = objServer->add_interface(
+        pldm::platform::association::getPath(tid),
+        "xyz.openbmc_project.Inventory.Decorator.Asset");
+
+    for (auto& mapping : redfishPropertyMappings)
+    {
+        auto iter = fruProperties.find(mapping.first);
+        if (iter != fruProperties.end())
+        {
+            fruIface->register_property(mapping.second,
+                                        toTrimmedString(iter->second));
+        }
+    }
+
+    // Special cases
+    // Find Vendor first, then Manufacturer
+    auto it = fruProperties.find("Vendor");
+    if (it != fruProperties.end())
+    {
+        fruIface->register_property("Manufacturer",
+                                    toTrimmedString(it->second));
+    }
+    else
+    {
+        it = fruProperties.find("Manufacturer");
+        if (it != fruProperties.end())
+        {
+            fruIface->register_property("Manufacturer",
+                                        toTrimmedString(it->second));
+        }
+    }
+
+    fruIface->initialize();
+    redfishFruInterface.emplace(tid, fruIface);
+}
+
+void RedfishFru::removeInterface(const pldm_tid_t tid)
+{
+    auto objServer = getObjServer();
+
+    auto it = redfishFruInterface.find(tid);
+    if (it == redfishFruInterface.end())
+    {
+        phosphor::logging::log<phosphor::logging::level::ERR>(
+            "Inventory FRU Interface associated didn't found for ",
+            phosphor::logging::entry("TID=%d", tid));
+        return;
+    }
+    objServer->remove_interface(it->second);
+    redfishFruInterface.erase(it);
+    return;
+}
+
+std::string RedfishFru::toTrimmedString(const FRUVariantType& value)
+{
+    try
+    {
+        std::string trimmedString = std::get<std::string>(value);
+        boost::algorithm::trim(trimmedString);
+        return trimmedString;
+    }
+    catch (const std::bad_variant_access&)
+    {
+        phosphor::logging::log<phosphor::logging::level::ERR>(
+            "Failed to convert FRU property to trimmed string");
+        return "";
+    }
+}
+
+#endif

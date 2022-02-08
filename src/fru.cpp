@@ -44,8 +44,12 @@ static FRUData fruData;
 
 constexpr size_t pldmHdrSize = sizeof(pldm_msg_hdr);
 
-// Fru Support object is used to covert PLDM FRU to IPMI Format
-FruSupport ipmiFru;
+// IpmiFru object is used to convert PLDM FRU to IPMI Format
+IpmiFru ipmiFru;
+#ifdef EXPOSE_CHASSIS
+// RedfishFru object is used to convert PLDM FRU to Redfish chassis properties
+RedfishFru redfishFru;
+#endif
 
 std::optional<FRUProperties> getProperties(const pldm_tid_t tid)
 {
@@ -522,6 +526,9 @@ bool deleteFRUDevice(const pldm_tid_t tid)
     std::string tidFRUObjPath = fruPath + std::to_string(tid);
     removeInterface(tidFRUObjPath, fruInterface);
     ipmiFru.removeInterfaces(tid);
+#ifdef EXPOSE_CHASSIS
+    redfishFru.removeInterface(tid);
+#endif
 
     phosphor::logging::log<phosphor::logging::level::INFO>(
         ("PLDM FRU device resource deleted for TID " + std::to_string(tid))
@@ -739,6 +746,10 @@ bool fruInit(boost::asio::yield_context yield, const pldm_tid_t tid)
             "Failed to map PLDM Fru to IPMI fru",
             phosphor::logging::entry("TID=%d", tid));
     }
+
+#ifdef EXPOSE_CHASSIS
+    redfishFru.createInterface(tid, terminusFRUProperties.at(tid));
+#endif
 
     return retVal;
 }
