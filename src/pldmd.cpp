@@ -20,6 +20,8 @@
 #include "pldm.hpp"
 #include "utils.hpp"
 
+#include <queue>
+
 extern "C" {
 #include <signal.h>
 }
@@ -555,6 +557,30 @@ void initDevice(const mctpw_eid_t eid, boost::asio::yield_context yield)
     }
 }
 
+// Parallel inits fail for devices behind SMBus mux due to timeouts waiting for
+// response. Also, sending pldm init messages in parallel causes inits to take a
+// longer duration due to the retries required for devices behind i2c mux. Thus,
+// serialize the device inits by implementing a queue to cache new EIDs if a
+// device init is already in progress.
+void deviceInitEventHandler(const mctpw_eid_t eid,
+                            boost::asio::yield_context yield)
+{
+    static std::queue<mctpw_eid_t> pendingDevices;
+    pendingDevices.emplace(eid);
+    if (pendingDevices.size() > 1)
+    {
+        phosphor::logging::log<phosphor::logging::level::WARNING>(
+            "Another device init in progress. Adding EID to queue.");
+        return;
+    }
+
+    while (pendingDevices.size())
+    {
+        initDevice(pendingDevices.front(), yield);
+        pendingDevices.pop();
+    }
+}
+
 void deleteDevice(const pldm_tid_t tid)
 {
     phosphor::logging::log<phosphor::logging::level::INFO>(
@@ -591,7 +617,7 @@ void onDeviceUpdate(void*, const mctpw::Event& evt,
     {
         case mctpw::Event::EventType::deviceAdded: {
             pldm::platform::pauseSensorPolling();
-            initDevice(evt.eid, yield);
+            deviceInitEventHandler(evt.eid, yield);
             pldm::platform::resumeSensorPolling();
             break;
         }
