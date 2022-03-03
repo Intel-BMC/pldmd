@@ -54,14 +54,6 @@ static inline const std::map<uint8_t, const char*> fruRecordTypes{
  */
 std::optional<FRUProperties> getProperties(const pldm_tid_t tid);
 
-/** @brief run SetFRURecordTable command
- *
- * @return PLDM_SUCCESS on success and corresponding error completion code
- * on failure
- */
-int setFruRecordTableCmd(boost::asio::yield_context yield, const pldm_tid_t tid,
-                         const std::vector<uint8_t>& setFruData);
-
 class GetPLDMFRU
 {
   public:
@@ -109,6 +101,28 @@ class GetPLDMFRU
     boost::asio::yield_context yield;
     pldm_tid_t tid;
     FRUMetadata fruMetadata;
+};
+
+class SetPLDMFRU
+{
+  public:
+    SetPLDMFRU() = delete;
+    explicit SetPLDMFRU(const pldm_tid_t tidVal);
+
+    int setFruRecordTableCmd(boost::asio::yield_context yield,
+                             const std::vector<uint8_t>& setFruData);
+
+  private:
+    pldm_tid_t tid;
+
+    uint8_t getTransferFlag(const size_t offset, const size_t length,
+                            const size_t dataSize);
+    int formatSetFruReq(std::vector<uint8_t>& requestMsg,
+                        const uint32_t dataTransferHandle, const size_t offset,
+                        const size_t length,
+                        const std::vector<uint8_t>& setFruData);
+    int sendFruData(boost::asio::yield_context yield,
+                    const std::vector<uint8_t>& setFruData);
 };
 
 class PLDMFRUTable

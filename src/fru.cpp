@@ -43,6 +43,7 @@ using FRUData = std::unordered_map<pldm_tid_t, std::vector<uint8_t>>;
 static FRUData fruData;
 
 constexpr size_t pldmHdrSize = sizeof(pldm_msg_hdr);
+constexpr size_t pldmFruBaselineTransferSize = 32;
 
 // IpmiFru object is used to convert PLDM FRU to IPMI Format
 IpmiFru ipmiFru;
@@ -459,6 +460,227 @@ bool GetPLDMFRU::runGetFRUCommands()
     return true;
 }
 
+SetPLDMFRU::SetPLDMFRU(const pldm_tid_t tidVal) : tid(tidVal)
+{
+}
+
+uint8_t SetPLDMFRU::getTransferFlag(const size_t offset, const size_t length,
+                                    const size_t dataSize)
+{
+    uint8_t transferFlag = PLDM_END;
+    if (offset + length < dataSize)
+    {
+        (offset == 0) ? (transferFlag = PLDM_START)
+                      : transferFlag = PLDM_MIDDLE;
+    }
+    else
+    {
+        (offset == 0) ? transferFlag = PLDM_START_AND_END
+                      : transferFlag = PLDM_END;
+    }
+
+    return transferFlag;
+}
+
+int SetPLDMFRU::formatSetFruReq(std::vector<uint8_t>& requestMsg,
+                                const uint32_t dataTransferHandle,
+                                const size_t offset, const size_t length,
+                                const std::vector<uint8_t>& setFruData)
+{
+    struct variable_field fruRecordTableData;
+    fruRecordTableData.ptr = setFruData.data() + offset;
+    fruRecordTableData.length = length;
+
+    uint8_t transferFlag = getTransferFlag(offset, length, setFruData.size());
+
+    uint8_t instanceId = createInstanceId(tid);
+
+    struct pldm_msg* request = reinterpret_cast<pldm_msg*>(requestMsg.data());
+
+    int rc = encode_set_fru_record_table_req(
+        instanceId, dataTransferHandle, transferFlag, &fruRecordTableData,
+        request, requestMsg.size() - pldmHdrSize);
+
+    validatePLDMReqEncode(tid, rc, "SetFruRecordTable");
+
+    return rc;
+}
+
+int SetPLDMFRU::sendFruData(boost::asio::yield_context yield,
+                            const std::vector<uint8_t>& setFruData)
+{
+    size_t offset = 0;
+    int retVal = PLDM_SUCCESS;
+    size_t length = pldmFruBaselineTransferSize; // max payload size
+    const size_t dataSize = setFruData.size();
+
+    // Max number of unique requests (excluding requeries)
+    size_t numExpectedRequests = dataSize / pldmFruBaselineTransferSize;
+
+    if (dataSize % pldmFruBaselineTransferSize > 0)
+    {
+        numExpectedRequests += 1;
+    }
+
+    // Calculate based on size of payload and maximum transfer size
+    // Max number of requests including the requeries
+    size_t maxNumReq = numExpectedRequests * 3;
+    std::set<uint32_t> sentRequests;
+    uint32_t dataTransferHandle = 0;
+
+    while (maxNumReq--)
+    {
+        offset = dataTransferHandle * pldmFruBaselineTransferSize;
+
+        if (offset > dataSize)
+        {
+            phosphor::logging::log<phosphor::logging::level::ERR>(
+                "SetFruRecordTable: Offset out of range",
+                phosphor::logging::entry("TID=%d", tid));
+            return PLDM_ERROR;
+        }
+        if (dataSize - offset < pldmFruBaselineTransferSize)
+        {
+            length = dataSize - offset;
+        }
+        else
+        {
+            length = pldmFruBaselineTransferSize;
+        }
+
+        std::vector<uint8_t> requestMsg(
+            pldmHdrSize + sizeof(pldm_set_fru_record_table_req) + length);
+
+        if (formatSetFruReq(requestMsg, dataTransferHandle, offset, length,
+                            setFruData) != PLDM_SUCCESS)
+        {
+            phosphor::logging::log<phosphor::logging::level::ERR>(
+                "SetFruRecordTable: Failed to encode setFru PLDM message",
+                phosphor::logging::entry("TID=%d", tid));
+            return PLDM_ERROR;
+        }
+
+        std::vector<uint8_t> responseMsg;
+        if (!sendReceivePldmMessage(yield, tid, timeout, retryCount, requestMsg,
+                                    responseMsg))
+        {
+            phosphor::logging::log<phosphor::logging::level::ERR>(
+                "SetFruRecordTable: Failed to send or receive PLDM message",
+                phosphor::logging::entry("TID=%d", tid));
+            return PLDM_ERROR;
+        }
+
+        auto responsePtr = reinterpret_cast<pldm_msg*>(responseMsg.data());
+        size_t payloadLen = responseMsg.size() - pldmHdrSize;
+
+        // parse response
+        uint8_t cc = PLDM_ERROR;
+        uint32_t nextDataTransferHandle = 0;
+
+        int rc = decode_set_fru_record_table_resp(responsePtr, payloadLen, &cc,
+                                                  &nextDataTransferHandle);
+
+        if (!validatePLDMRespDecode(tid, rc, cc, "SetFruRecordTable"))
+        {
+            phosphor::logging::log<phosphor::logging::level::ERR>(
+                "SetFruRecordTable: Invalid Response");
+            return PLDM_ERROR;
+        }
+        sentRequests.insert(dataTransferHandle);
+        dataTransferHandle = nextDataTransferHandle;
+        // Confirm if complete package data is been transferred
+        if (sentRequests.size() == numExpectedRequests)
+        {
+            phosphor::logging::log<phosphor::logging::level::INFO>(
+                "Set fru successful");
+            break;
+        }
+    }
+
+    if (maxNumReq == 0)
+    {
+        phosphor::logging::log<phosphor::logging::level::ERR>(
+            ("SetFruRecordTableData: Failed as requests exceed limit "));
+        retVal = PLDM_ERROR;
+    }
+    return retVal;
+}
+
+int SetPLDMFRU::setFruRecordTableCmd(boost::asio::yield_context yield,
+                                     const std::vector<uint8_t>& setFruData)
+{
+    auto it = terminusFRUMetadata.find(tid);
+    if (it != terminusFRUMetadata.end())
+    {
+        // In case of empty FRU, Metadata won't be present, so still proceeed.
+        FRUMetadata& tmpMap = it->second;
+        auto fruTableMaxSize = tmpMap.find("FRUTableMaximumSize");
+        if (fruTableMaxSize == tmpMap.end())
+        {
+            phosphor::logging::log<phosphor::logging::level::ERR>(
+                "SetFruRecordTable: No FRUTableMaximumSize available in "
+                "metadata",
+                phosphor::logging::entry("TID=%d", tid));
+            return PLDM_ERROR;
+        }
+        if (setFruData.size() > fruTableMaxSize->second)
+        {
+            phosphor::logging::log<phosphor::logging::level::ERR>(
+                "SetFruRecordTable: FRU Data Size cannot be greater "
+                "than FRUTableMaximumSize",
+                phosphor::logging::entry("TID=%d", tid));
+            return PLDM_ERROR;
+        }
+        phosphor::logging::log<phosphor::logging::level::INFO>(
+            "Fru Data Size Check Done");
+    }
+
+    // Multipart transfer
+    if (sendFruData(yield, setFruData) != PLDM_SUCCESS)
+    {
+        return PLDM_ERROR;
+    }
+
+    auto itr = terminusFRUMetadata.find(tid);
+    if (itr != terminusFRUMetadata.end())
+    {
+        // If terminusFRUMetadata[tid] not found, then continue with get
+        // commands and add fru interface for first time setFRU.
+        // If terminusFRUMetadata[tid] found, then clearing all tid info in maps
+        // and removing interface.
+
+        if (!deleteFRUDevice(tid))
+        {
+            phosphor::logging::log<phosphor::logging::level::ERR>(
+                "Failed to to remove interface",
+                phosphor::logging::entry("TID=%d", tid));
+            return PLDM_ERROR;
+        }
+    }
+
+    // Re-query FRU data via get commands and update the FRU fields accordingly.
+    GetPLDMFRU getFRUCommands(yield, tid);
+    if (!getFRUCommands.runGetFRUCommands())
+    {
+        phosphor::logging::log<phosphor::logging::level::ERR>(
+            "Failed to run FRU commands",
+            phosphor::logging::entry("TID=%d", tid));
+        return PLDM_ERROR;
+    }
+    try
+    {
+        ipmiFru.convertFRUToIpmiFRU(tid, terminusFRUProperties.at(tid));
+    }
+    catch (const std::out_of_range&)
+    {
+        phosphor::logging::log<phosphor::logging::level::WARNING>(
+            "Failed to map PLDM Fru to IPMI fru",
+            phosphor::logging::entry("TID=%d", tid));
+    }
+
+    return PLDM_SUCCESS;
+}
+
 static void removeInterface(
     std::string& interfacePath,
     std::vector<std::shared_ptr<sdbusplus::asio::dbus_interface>>& interfaces)
@@ -551,116 +773,6 @@ std::optional<std::vector<uint8_t>> GetPLDMFRU::getPLDMFruRecordData()
     return itr->second;
 }
 
-int setFruRecordTableCmd(boost::asio::yield_context yield, const pldm_tid_t tid,
-                         const std::vector<uint8_t>& setFruData)
-{
-    auto it = terminusFRUMetadata.find(tid);
-    if (it != terminusFRUMetadata.end())
-    {
-        // In case of empty FRU, Metadata won't be present, so still proceeed.
-        FRUMetadata& tmpMap = it->second;
-        auto fruTableMaxSize = tmpMap.find("FRUTableMaximumSize");
-        if (fruTableMaxSize == tmpMap.end())
-        {
-            phosphor::logging::log<phosphor::logging::level::ERR>(
-                "SetFruRecordTable: No FRUTableMaximumSize available in "
-                "metadata",
-                phosphor::logging::entry("TID=%d", tid));
-            return PLDM_ERROR;
-        }
-        if (setFruData.size() > fruTableMaxSize->second)
-        {
-            phosphor::logging::log<phosphor::logging::level::ERR>(
-                "SetFruRecordTable: FRU Data Size cannot be greater "
-                "than FRUTableMaximumSize",
-                phosphor::logging::entry("TID=%d", tid));
-            return PLDM_ERROR;
-        }
-        phosphor::logging::log<phosphor::logging::level::INFO>(
-            "Fru Data Size Check Done");
-    }
-
-    // TODO: Multipart transfer
-
-    uint32_t dataTransferHandle = 1;
-    uint8_t transferFlag = PLDM_START_AND_END;
-
-    struct variable_field fruRecordTableData;
-    fruRecordTableData.ptr = setFruData.data();
-    fruRecordTableData.length = setFruData.size();
-
-    std::vector<uint8_t> requestMsg(pldmHdrSize +
-                                    sizeof(pldm_set_fru_record_table_req) +
-                                    setFruData.size());
-    struct pldm_msg* request = reinterpret_cast<pldm_msg*>(requestMsg.data());
-
-    uint8_t instanceId = createInstanceId(tid);
-
-    int rc = encode_set_fru_record_table_req(
-        instanceId, dataTransferHandle, transferFlag, &fruRecordTableData,
-        request, requestMsg.size() - pldmHdrSize);
-
-    if (!validatePLDMReqEncode(tid, rc, "SetFruRecordTable"))
-    {
-        return PLDM_ERROR;
-    }
-
-    std::vector<uint8_t> responseMsg;
-
-    if (!sendReceivePldmMessage(yield, tid, timeout, retryCount, requestMsg,
-                                responseMsg))
-    {
-        phosphor::logging::log<phosphor::logging::level::ERR>(
-            "SetFruRecordTable: Failed to send or receive PLDM message",
-            phosphor::logging::entry("TID=%d", tid));
-        return PLDM_ERROR;
-    }
-
-    auto responsePtr = reinterpret_cast<pldm_msg*>(responseMsg.data());
-    size_t payloadLen = responseMsg.size() - pldmHdrSize;
-
-    // parse response
-    uint8_t cc = PLDM_ERROR;
-    uint32_t nextDataTransferHandle = 0;
-
-    rc = decode_set_fru_record_table_resp(responsePtr, payloadLen, &cc,
-                                          &nextDataTransferHandle);
-
-    if (!validatePLDMRespDecode(tid, rc, cc, "SetFruRecordTable"))
-    {
-        return PLDM_ERROR;
-    }
-
-    auto itr = terminusFRUMetadata.find(tid);
-    if (itr != terminusFRUMetadata.end())
-    {
-        // If terminusFRUMetadata[tid] not found, then continue with get
-        // commands and add fru interface for first time setFRU.
-        // If terminusFRUMetadata[tid] found, then clearing all tid info in maps
-        // and removing interface.
-
-        if (!deleteFRUDevice(tid))
-        {
-            phosphor::logging::log<phosphor::logging::level::ERR>(
-                "Failed to to remove interface",
-                phosphor::logging::entry("TID=%d", tid));
-            return PLDM_ERROR;
-        }
-    }
-
-    // Re-query FRU data via get commands and update the FRU fields accordingly.
-    GetPLDMFRU getFRUCommands(yield, tid);
-    if (!getFRUCommands.runGetFRUCommands())
-    {
-        phosphor::logging::log<phosphor::logging::level::ERR>(
-            "Failed to run FRU commands",
-            phosphor::logging::entry("TID=%d", tid));
-        return PLDM_ERROR;
-    }
-
-    return PLDM_SUCCESS;
-}
-
 static void initializeGetFruIntf()
 {
     auto objServer = getObjServer();
@@ -696,7 +808,8 @@ static void initializeFRUBase()
            const std::vector<uint8_t>& data) {
             phosphor::logging::log<phosphor::logging::level::INFO>(
                 "SetFRURecordTable is called");
-            int retVal = setFruRecordTableCmd(yieldVal, tidVal, data);
+            SetPLDMFRU setFRU(tidVal);
+            int retVal = setFRU.setFruRecordTableCmd(yieldVal, data);
 
             if (retVal != PLDM_SUCCESS)
             {
