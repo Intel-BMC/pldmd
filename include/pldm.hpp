@@ -138,6 +138,14 @@ bool releaseBandwidth(const boost::asio::yield_context yield,
                       const pldm_tid_t tid, const uint8_t pldmType);
 // TODO: Add an API to free the Instance ID after usage.
 
+/** @brief Get device location string for tid
+ *
+ * @param tid - TID of the PLDM device
+ *
+ * @return Device location string
+ */
+std::optional<std::string> getDeviceLocation(const pldm_tid_t tid);
+
 /** @brief Returns PLDM message Instance ID
  *
  * Extracts Instance ID out of a PLDM message

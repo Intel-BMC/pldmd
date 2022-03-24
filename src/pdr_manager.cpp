@@ -883,18 +883,26 @@ void PDRManager::populateSystemHierarchy()
 
 void PDRManager::extractDeviceAuxName(EntityNode::NodePtr& rootNode)
 {
+    std::optional<std::string> deviceName;
+    std::optional<std::string> deviceLocation;
     if (rootNode != nullptr)
     {
         auto iter = _entityAuxNames.find(rootNode->containerEntity);
         if (iter != _entityAuxNames.end())
         {
-            _deviceAuxName = iter->second;
-            _deviceAuxName += ("_" + std::to_string(_tid));
-            return;
+            deviceName = iter->second;
         }
     }
+    deviceLocation = getDeviceLocation(_tid);
 
-    _deviceAuxName = ("PLDM_Device_" + std::to_string(_tid));
+    std::string auxName =
+        deviceLocation.has_value()
+            ? deviceLocation.value() + "_" + deviceName.value_or("PLDM_Device")
+            : deviceName.value_or("PLDM_Device") + "_" + std::to_string(_tid);
+
+    // Replace unsupported characters in DBus path
+    _deviceAuxName =
+        std::regex_replace(auxName, std::regex("[^a-zA-Z0-9_/]+"), "_");
 }
 
 #ifdef EXPOSE_CHASSIS
@@ -937,8 +945,7 @@ void PDRManager::parseSensorAuxNamesPDR(std::vector<uint8_t>& pdrData)
                                namePDR->sensor_auxiliary_names))
     {
         // Cache the Sensor Auxiliary Names
-        _sensorAuxNames[namePDR->sensor_id] =
-            *name + "_" + std::to_string(_tid);
+        _sensorAuxNames[namePDR->sensor_id] = _deviceAuxName + "_" + *name;
 
         phosphor::logging::log<phosphor::logging::level::DEBUG>(
             ("SensorID:" +
@@ -969,8 +976,7 @@ void PDRManager::parseEffecterAuxNamesPDR(std::vector<uint8_t>& pdrData)
                                namePDR->effecter_auxiliary_names))
     {
         // Cache the Effecter Auxiliary Names
-        _effecterAuxNames[namePDR->effecter_id] =
-            *name + "_" + std::to_string(_tid);
+        _effecterAuxNames[namePDR->effecter_id] = _deviceAuxName + "_" + *name;
 
         phosphor::logging::log<phosphor::logging::level::DEBUG>(
             ("EffecterID:" +
@@ -1019,7 +1025,8 @@ std::optional<std::string>
 std::string PDRManager::createSensorName(const SensorID sensorID)
 {
     std::string sensorName =
-        "PLDM_Sensor_" + std::to_string(sensorID) + "_" + std::to_string(_tid);
+        _deviceAuxName + "_Sensor_" + std::to_string(sensorID);
+
     _sensorAuxNames[sensorID] = sensorName;
 
     phosphor::logging::log<phosphor::logging::level::DEBUG>(
@@ -1226,8 +1233,8 @@ std::optional<std::string>
 
 std::string PDRManager::createEffecterName(const EffecterID effecterID)
 {
-    std::string effecterName = "PLDM_Effecter_" + std::to_string(effecterID) +
-                               "_" + std::to_string(_tid);
+    std::string effecterName =
+        _deviceAuxName + "_Effecter_" + std::to_string(effecterID);
 
     _effecterAuxNames[effecterID] = effecterName;
 

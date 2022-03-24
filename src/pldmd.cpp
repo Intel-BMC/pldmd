@@ -117,6 +117,15 @@ bool releaseBandwidth(const boost::asio::yield_context yield,
     return true;
 }
 
+std::optional<std::string> getDeviceLocation(const pldm_tid_t tid)
+{
+    std::optional<mctpw_eid_t> eid = tidMapper.getMappedEID(tid);
+    if (eid.has_value()) {
+        return mctpWrapper->getDeviceLocation(eid.value());
+    }
+    return std::nullopt;
+}
+
 std::optional<pldm_tid_t> TIDMapper::getMappedTID(const mctpw_eid_t eid)
 {
     for (auto& eidMap : tidMap)
