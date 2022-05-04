@@ -228,27 +228,46 @@ The below diagram shows the PLDM terminus (Add-in-Card) having another
 associated entity (Processor). Also, the hierarchy shows the sensors
 and effecters associated to each entity.
 
-__Note:__ The Entity name (Add-in-card) and sensor/effecter name
-(NumericSensor1) varies as per Auxiliary name PDR. The sensor/effecter names
-will have TID append at the end to avoid duplicate names when more than one
-PLDM terminus has same name. If The PLDM terminus doesn't support Auxiliary
-name PDRs, BMC will assign dummy names as per the following format.
-* Entity - \<EntityType\>\_\<EntityInstanceNumber\>\_\<EntityContainerID\>
-* Sensor - PLDM\_Sensor\_\<SensorID\>\_\<TID\>
-* Effecter - PLDM\_Effecter\_\<EffecterID\>\_\<TID\>
+__Note:__
+The sensor/effecter names will have device full name as prefix to avoid duplicate
+names when more than one PLDM terminus has same name. The naming format is:
 
-        /xyz/openbmc_project/system
-        |_/xyz/openbmc_project/system/<TID>
-          |_/xyz/openbmc_project/system/<TID>/Add-in-card
-          |  |_/xyz/openbmc_project/system/<TID>/Add-in-card/NumericSensor1_<TID>
-          |  |_/xyz/openbmc_project/system/<TID>/Add-in-card/StateSensor1_<TID>
-          |  |_/xyz/openbmc_project/system/<TID>/Add-in-card/StateSensor2_<TID>
-          |  |_/xyz/openbmc_project/system/<TID>/Add-in-card/NumericEffecter1_<TID>
-          |  |_/xyz/openbmc_project/system/<TID>/Add-in-card/StateEffecter1_<TID>
-          |_/xyz/openbmc_project/system/<TID>/Add-in-card/Processor
-              |_/xyz/openbmc_project/system/<TID>/Add-in-card/Processor/NumericSensor1_<TID>
-              |_/xyz/openbmc_project/system/<TID>/Add-in-card/Processor/NumericSensor2_<TID>
-              |_/xyz/openbmc_project/system/<TID>/Add-in-card/Processor/StateEffecter1_<TID>
+* Entity - `<EntityName>`
+* Sensor - `<DeviceFullName>_<SensorName>`
+* Effecter - `<DeviceFullName>_<EffecterName>`
+
+The DeviceName is read from the Entity Auxiliary Names PDR of the root Entity
+Association PDR. If the PDR is not available, the default name `PLDM_Device`
+will be assigned. DeviceLocation is read from the LocationCode property in mctpd
+used for distinguishing devices. Both DeviceName and DeviceLocation forms the full
+name of a device (hereinafter referred to as DeviceFullName). The format is 
+`<DeviceLocation>_<DeviceName>` when location is available, `<DeviceName>_<TID>`
+otherwise.
+
+EntityName is also read from Entity Auxiliary Names PDR, if it has no auxiliary
+name, default value will be `<EntityType>_<InstanceNumber>_<ContainerID>`.
+
+SensorName/EffecterName are read from Sensor/Effecter Auxiliary Names PDR. If there
+is no matched PDR, default `PLDM_Sensor/Effecter_<SensorID>` will be used for the
+`Sensor/EffecterName` part. The full name is prefixed with DeviceFullName.
+
+Below is an example of pldmd DBus hierarchy.
+(LocationCode=`PCIe1`, DeviceName=`Add-in-card`, SensorName=`Numeric/EffecterSensorX`)
+
+```
+/xyz/openbmc_project/system
+|_/xyz/openbmc_project/system/<TID>
+  |_/xyz/openbmc_project/system/<TID>/Add-in-card
+  |  |_/xyz/openbmc_project/system/<TID>/Add-in-card/PCIe_1_Add-in-card_NumericSensor1
+  |  |_/xyz/openbmc_project/system/<TID>/Add-in-card/PCIe_1_Add-in-card_StateSensor1
+  |  |_/xyz/openbmc_project/system/<TID>/Add-in-card/PCIe_1_Add-in-card_StateSensor2
+  |  |_/xyz/openbmc_project/system/<TID>/Add-in-card/PCIe_1_Add-in-card_NumericEffecter1
+  |  |_/xyz/openbmc_project/system/<TID>/Add-in-card/PCIe_1_Add-in-card_StateEffecter1
+  |_/xyz/openbmc_project/system/<TID>/Add-in-card/Processor
+      |_/xyz/openbmc_project/system/<TID>/Add-in-card/Processor/PCIe_1_Add-in-card_NumericSensor1
+      |_/xyz/openbmc_project/system/<TID>/Add-in-card/Processor/PCIe_1_Add-in-card_NumericSensor2
+      |_/xyz/openbmc_project/system/<TID>/Add-in-card/Processor/PCIe_1_Add-in-card_StateEffecter1
+```
 
 `PLDM.Entity`, `PLDM.NumericSensor`, `PLDM.StateSensor`, `PLDM.NumericEffecter`,
 `PLDM.StateEffecter` interfaces shall be exposed by entity, sensors or
