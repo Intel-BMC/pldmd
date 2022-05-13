@@ -2233,7 +2233,7 @@ int FWUpdate::runUpdate(const boost::asio::yield_context yield)
         phosphor::logging::log<phosphor::logging::level::ERR>(
             ("firmware update failed. RETVAL: " + std::to_string(retVal))
                 .c_str());
-        return retVal;
+        return PLDM_ERROR;
     }
 
     bool8_t selfContainedActivationReq = true;
