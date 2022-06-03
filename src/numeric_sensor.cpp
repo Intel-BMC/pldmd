@@ -29,13 +29,13 @@ constexpr const size_t errorThreshold = 3;
 NumericSensor::NumericSensor(const std::string& sensorName,
                              std::vector<thresholds::Threshold>& thresholdData,
                              const double max, const double min,
+                             const double hysteresis,
                              const SensorUnit sensorUnit,
                              const bool sensorDisabled,
                              const std::string& associationPath) :
     name(std::regex_replace(sensorName, std::regex("[^a-zA-Z0-9_/]+"), "_")),
     maxValue(max), minValue(min), thresholds(thresholdData), unit(sensorUnit),
-    hysteresisTrigger((max - min) * 0.01),
-    hysteresisPublish((max - min) * 0.0001), errCount(0)
+    hysteresisTrigger(hysteresis), errCount(0)
 {
     std::string path;
     switch (unit)

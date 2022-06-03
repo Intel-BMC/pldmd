@@ -214,6 +214,17 @@ bool NumericSensorHandler::initSensor()
         return false;
     }
 
+    std::optional<float> hysteresis =
+        pdr::sensor::fetchSensorValue(*_pdr, _pdr->hysteresis);
+    if (hysteresis == std::nullopt)
+    {
+        phosphor::logging::log<phosphor::logging::level::ERR>(
+            "Unable to decode hysteresis",
+            phosphor::logging::entry("SENSOR_ID=0x%0X", _sensorID),
+            phosphor::logging::entry("TID=%d", _tid));
+        return false;
+    }
+
     std::optional<SensorUnit> baseUnit = pdr::sensor::getSensorUnit(*_pdr);
     if (baseUnit == std::nullopt)
     {
@@ -236,7 +247,8 @@ bool NumericSensorHandler::initSensor()
         _sensor = std::make_shared<NumericSensor>(
             _name, thresholdData,
             pdr::sensor::calculateSensorValue(*_pdr, *maxVal),
-            pdr::sensor::calculateSensorValue(*_pdr, *minVal), *baseUnit,
+            pdr::sensor::calculateSensorValue(*_pdr, *minVal),
+            pdr::sensor::calculateSensorValue(*_pdr, *hysteresis), *baseUnit,
             sensorDisabled, association::getPath(_tid));
     }
     catch (const std::exception& e)
