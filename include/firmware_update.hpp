@@ -28,11 +28,14 @@ namespace pldm
 namespace fwu
 {
 
+struct SelfContainedActivationCache;
+
 class FWUpdate
 {
   public:
     FWUpdate(const pldm_tid_t _tid, const uint8_t _deviceIDRecord);
-    int runUpdate(const boost::asio::yield_context yield);
+    int runUpdate(const boost::asio::yield_context yield,
+                  SelfContainedActivationCache& selfContainedActivationCache);
     void validateReqForFWUpdCmd(const pldm_tid_t tid, const uint8_t messageTag,
                                 const std::vector<uint8_t>& req);
     bool setMatchedFDDescriptors();

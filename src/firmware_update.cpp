@@ -1970,7 +1970,43 @@ void FWUpdate::activateReserveBandwidth()
     });
 }
 
-int FWUpdate::runUpdate(const boost::asio::yield_context yield)
+struct SelfContainedActivationCache
+{
+    void updateTime(pldm_tid_t tid, int status, uint16_t time)
+    {
+        Device device{status, time};
+        cache.insert(std::make_pair(tid, device));
+    }
+
+    uint16_t getMaxTime()
+    {
+        uint16_t maxTime = 0;
+        for (auto& [tid, device] : cache)
+        {
+            if (device.updateStatus == PLDM_SUCCESS)
+            {
+                if (device.estimatedTimeForSelfContainedActivation > maxTime)
+                {
+                    maxTime = device.estimatedTimeForSelfContainedActivation;
+                }
+            }
+        }
+        return maxTime;
+    }
+
+  private:
+    struct Device
+    {
+        int updateStatus;
+        uint16_t estimatedTimeForSelfContainedActivation;
+    };
+
+    std::unordered_map<pldm_tid_t, Device> cache{};
+};
+
+int FWUpdate::runUpdate(
+    const boost::asio::yield_context yield,
+    SelfContainedActivationCache& selfContainedActivationCache)
 {
     compCount = pldmImg->getTotalCompCount();
     int retVal = processRequestUpdate(yield);
@@ -2200,11 +2236,11 @@ int FWUpdate::runUpdate(const boost::asio::yield_context yield)
         phosphor::logging::log<phosphor::logging::level::DEBUG>(
             "FD changed state to READY XFER");
     }
-    // TODO: The FD can send this command when it is in any state, except the
-    // IDLE and LEARN COMPONENTS state. we need to note a limitation that FD
-    // cannot send this command when UA(BMC) is acting as requester and if FD
-    // present behind the MUX. In this patch we support send matadata command
-    // only after apply complete command.
+    // TODO: The FD can send this command when it is in any state, except
+    // the IDLE and LEARN COMPONENTS state. we need to note a limitation
+    // that FD cannot send this command when UA(BMC) is acting as requester
+    // and if FD present behind the MUX. In this patch we support send
+    // matadata command only after apply complete command.
 
     if (fwDeviceMetaDataLen != 0)
     {
@@ -2255,10 +2291,8 @@ int FWUpdate::runUpdate(const boost::asio::yield_context yield)
         ("Firmware update completed successfully for TID:" +
          std::to_string(currentTid))
             .c_str());
-
-    constexpr int bufferTimeMilliSec = 1000;
-    startTimer(yield, bufferTimeMilliSec + selfContainedActivationReq);
-    triggerDeviceDiscovery(currentTid);
+    selfContainedActivationCache.updateTime(
+        currentTid, retVal, estimatedTimeForSelfContainedActivation);
 
     return PLDM_SUCCESS;
 }
@@ -2341,8 +2375,9 @@ static void updateAssociationsProperty()
     associationsIntf->set_property("Associations", association);
 }
 
-/** @brief API that deletes PLDM firmware device resorces. This API should be
- * called when PLDM firmware update capable device is removed from the platform.
+/** @brief API that deletes PLDM firmware device resorces. This API should
+ * be called when PLDM firmware update capable device is removed from the
+ * platform.
  */
 bool deleteFWDevice(const pldm_tid_t tid)
 {
@@ -2393,7 +2428,11 @@ static int initUpdate(const boost::asio::yield_context yield)
             "already in progress");
         return PLDM_ERROR;
     }
+
     bool fwUpdateStatus = true;
+    SelfContainedActivationCache selfContainedActivationCache{};
+
+    pldm::platform::pauseSensorPolling();
     auto matchedTermini = pldmImg->getMatchedTermini();
     for (const auto& it : matchedTermini)
     {
@@ -2409,8 +2448,7 @@ static int initUpdate(const boost::asio::yield_context yield)
                     .c_str());
             continue;
         }
-        pldm::platform::pauseSensorPolling();
-        int retVal = fwUpdate->runUpdate(yield);
+        int retVal = fwUpdate->runUpdate(yield, selfContainedActivationCache);
         if (retVal != PLDM_SUCCESS)
         {
             phosphor::logging::log<phosphor::logging::level::ERR>(
@@ -2420,10 +2458,25 @@ static int initUpdate(const boost::asio::yield_context yield)
             fwUpdateStatus = false;
             fwUpdate->terminateFwUpdate(yield);
         }
-        pldm::platform::resumeSensorPolling();
         updateMode = false;
     }
 
+    if (!updateMode)
+    {
+        boost::system::error_code ec;
+        auto waitTimer =
+            std::make_unique<boost::asio::steady_timer>(*getIoContext());
+        waitTimer->expires_after(
+            std::chrono::seconds(selfContainedActivationCache.getMaxTime()));
+        waitTimer->async_wait(yield[ec]);
+
+        for (const auto& [matchedDevIdRecord, matchedTID] : matchedTermini)
+        {
+            triggerDeviceDiscovery(matchedTID);
+        }
+    }
+
+    pldm::platform::resumeSensorPolling();
     if (!fwUpdateStatus)
     {
         fwUpdate->updateFWUProperty(
@@ -2535,8 +2588,8 @@ bool fwuInit(boost::asio::yield_context yield, const pldm_tid_t tid)
         std::make_pair(tid, std::move(inventoryInfo.getInterfaces())));
     inventoryPaths.insert(
         std::make_pair(tid, inventoryInfo.getInventoryPath()));
-    // TODO: There could be some pldmd devices which supports inventory commands
-    // but does not support pldm firmware update. For such devices
+    // TODO: There could be some pldmd devices which supports inventory
+    // commands but does not support pldm firmware update. For such devices
     // updateAssociationsProperty() should not be called
     updateAssociationsProperty();
     terminusFwuProperties[tid] = *properties;
