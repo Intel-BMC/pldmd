@@ -60,6 +60,13 @@ NumericSensor::NumericSensor(const std::string& sensorName,
                                      " is not of supported type");
             break;
     }
+    if (maxValue <= minValue)
+    {
+        throw std::runtime_error("Ignoring sensor " + name + ": maxReadable '" +
+                                 std::to_string(maxValue) +
+                                 "' not greater than minReadable'" +
+                                 std::to_string(minValue) + "'.");
+    }
 
     auto objectServer = getObjServer();
 
