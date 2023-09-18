@@ -247,7 +247,7 @@ class PDRManager
         _entityAuxNames;
 
     /** @brief Container ID of the parent entity represented by TID*/
-    ContainerID _containerID;
+    ContainerID _containerID = 0;
 
     /** @brief Entity Association tree representing system hierarchy*/
     EntityNode::NodePtr _entityAssociationTree;

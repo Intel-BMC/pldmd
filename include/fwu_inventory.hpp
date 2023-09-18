@@ -118,7 +118,7 @@ class FWInventoryInfo
     CompPropertiesMap compPropertiesMap;
     std::string pendingCompImgSetVerStr;
     std::string activeCompImgSetVerStr;
-    uint16_t initialDescriptorType;
+    uint16_t initialDescriptorType = 0;
     const uint16_t timeout = 100;
     const size_t retryCount = 3;
     // map that holds the general properties of a terminus

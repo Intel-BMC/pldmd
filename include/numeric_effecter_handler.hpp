@@ -94,10 +94,10 @@ class NumericEffecterHandler
     std::unique_ptr<boost::asio::steady_timer> transitionIntervalTimer;
 
     /** @brief Maximum settable Effecter value*/
-    double maxSettable;
+    double maxSettable = 0;
 
     /** @brief Minimum settable Effecter value*/
-    double minSettable;
+    double minSettable = 0;
 
     uint8_t cmdRetryCount{};
 };

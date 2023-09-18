@@ -181,8 +181,7 @@ class PLDMFRUTable
               (fruStamp.day >= 1 && fruStamp.day <= 31) &&
               (fruStamp.hour < 24) && (fruStamp.minute < 60) &&
               (fruStamp.second < 60) &&
-              ((fruStamp.microsecond >= 0) &&
-               (fruStamp.microsecond <= 999999)) &&
+              ((fruStamp.microsecond <= 999999)) &&
               (fruStamp.utc_offset >= -999 && fruStamp.utc_offset <= 999)))
         {
             phosphor::logging::log<phosphor::logging::level::ERR>(

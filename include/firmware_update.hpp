@@ -157,8 +157,8 @@ class FWUpdate
                      size_t& length, std::set<uint32_t>& recvdRequests);
     uint16_t passCompCount = 0;
     pldm_tid_t currentTid;
-    uint8_t expectedCmd;
-    uint8_t msgTag;
+    uint8_t expectedCmd = 0;
+    uint8_t msgTag = 0;
     std::vector<uint8_t> fdReq;
     bool fdReqMatched = false;
     bool isReserveBandwidthActive = false;
